@@ -21,7 +21,7 @@
 ![](./imgs/vm_pm.png)
 
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/vm_pm.png =700x500)
+![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/vm_pm.png)
 
 <br>
 
