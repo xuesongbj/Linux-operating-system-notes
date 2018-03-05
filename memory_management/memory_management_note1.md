@@ -17,12 +17,8 @@
 * 提供虚拟地址和物理地址的映射</br>
 <br>
 &emsp;&emsp;例如,CPU访问一个32位的虚拟地址0x12345670,假设MMU的管理把每一页的内存分成4KB(在32位操作系统通常采用的Page Size位4K),上图中p(页号)即为12345,d(页内偏移地址)即为670。首先用p去查页表(页表本身也在内存),找到对应的页表项(PTE),PTE里面填写了这一页虚拟地址所对应的物理地址。
-
-![](./imgs/vm_pm.png)
-
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/vm_pm.png)
-
+![](./imgs/vm_pm.png)
 <br>
 
 * 内存访问权限保护
@@ -36,9 +32,9 @@
 <br>
 &emsp;&emsp;&emsp; 2. 两种情况都会导致"Page fault"。第一种:虚拟地址没有找到对应的物理地址;第二种: 虚拟地址有对应的物理地址,但权限不对。
 </font>
-<br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/rwx.png =700x500)
 
+<br>
+![](./imgs/rwx.png)
 <br>
 
 &emsp;&emsp;&emsp; 另外一个重要的地方是,在MMU的页表中还可以标注这一页的另一个并行的权限。即这个虚拟地址可以在用户态与内核态访问,还是只能在内核态访问。
@@ -51,9 +47,9 @@
 &emsp;&emsp;&emsp; "虚拟地址"是个指针,"物理地址"是个整数(32位或者64位整数,不是指针),可参考内核代码对物理地址定义(include/linux/types.h):
 
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/phys_addr.png =500x200)
-
+![](./imgs/phys_addr.png)
 <br>
+
 
 #### TLB(Translation Looksize Buffer)
 &emsp;&emsp;&emsp; 由于页表访问速度很慢(Page table位于内存中)。引出MMU的核心部件TLB(硬件级页表缓存部件,cpu内部硬件),TLB是MMU核心部件,它缓存少量的虚拟地址和物理地址的转换关系,是转换表的Cache,俗称"快表"。
@@ -61,9 +57,9 @@
 &emsp;&emsp;&emsp; 当TLB中没有缓冲对应的地址转换关系时,需要通过对页表(大多数处理器的页表为多级页表)的访问来获得虚拟地址和物理地址的对应关系,引出MMU的另一个部件TTW(Translation Table walk)。TTW成功后,结果应写入TLB中。
 
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/tlb.png =800x500)
-
+![](./imgs/tlb.png)
 <br>
+
 
 <font color=#F08080	 size=3>&emsp;&emsp;&emsp;注:
 <br>
@@ -126,18 +122,16 @@
 &emsp;&emsp;&emsp; 由于硬件的一些约束,低端的一些地址被用于DMA,当实际内存大小超过了内核所能使用的线性地址的时候,一些高处地址处的物理地址不能简单持久的直接映射到内核空间。因此,内核将内存的节点node分成了不同的内存区域方便管理和映射。
 
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/zone.png =800x500)
+![](./imgs/zone.png)
 <br>
-
 <br>
-![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/zone_type.png =500x1000)
-
+![](./imgs/zone_type.png)
 <br>
 
 &emsp;&emsp;&emsp; 不同的管理区的用途是不一样的,ZONE_DMA类型的内存区域在物理内存的低端,主要是ISA设备只能用低端的地址做DMA操作。ZONE_NORMAL类型的内存区域直接被内核映射到线性地址空间上面的区域(line address space), ZONE_HIGHMEM将保留给系统使用,是系统中预留的可用内存空间,不能被内核直接映射。
  
- 
-#以下内容待整理.....
+<br>
+# 以下内容待整理.....
 
     
 * CPU开启MMU之后,CPU访问的就是虚拟地址,如果需要访问物理地址需要通过MMU地址映射进行访问(只有MMU可以看到物理地址).
