@@ -18,7 +18,7 @@
 <br>
 &emsp;&emsp;例如,CPU访问一个32位的虚拟地址0x12345670,假设MMU的管理把每一页的内存分成4KB(在32位操作系统通常采用的Page Size位4K),上图中p(页号)即为12345,d(页内偏移地址)即为670。首先用p去查页表(页表本身也在内存),找到对应的页表项(PTE),PTE里面填写了这一页虚拟地址所对应的物理地址。
 <br>
-![](./imgs/vm_pm.png =700x500)
+![image](http://github.com/xuesongbj/Linux-operating-system-notes/raw/master/imgs/vm_pm.png)
 
 
 * 内存访问权限保护
