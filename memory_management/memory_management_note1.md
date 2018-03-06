@@ -21,6 +21,11 @@
 ![](./imgs/vm_pm.png)
 <br>
 
+<br>
+![vm_pm](https://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/vm_pm.png =500x500)
+<br>
+
+
 * 内存访问权限保护
 <br>
 每个PTE中除了有虚拟地址和物理地址对应关系外,还有当前页的RWX权限。比如,代码段中只有R+X权限。如果食用一个指针去写代码段,就会发生"Page fault。"
@@ -124,6 +129,7 @@
 <br>
 ![](./imgs/zone.png)
 <br>
+
 <br>
 ![](./imgs/zone_type.png)
 <br>
