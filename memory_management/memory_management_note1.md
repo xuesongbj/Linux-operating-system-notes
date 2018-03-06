@@ -64,10 +64,8 @@
 
 #### MPU(Memory protection unit)
 &emsp;&emsp;&emsp; 内存保护单元,它和MMU相比。没有虚拟地址和物理地址映射,只能对内存做权限管理(实模式)。
-<br><br>
 
 ## 内存模型
-----------------------------
 
 ### 共享存储型多处理器有两种模型
 * 均衡存储器存储(Uniform-Memory-Access，简称UMA)模型
@@ -81,13 +79,13 @@
 &emsp;&emsp;&emsp; NUMA模式下，处理器被划分成多个”节点”（node）， 每个节点被分配有的本地存储器空间。 所有节点中的处理器都可以访问全部的系统物理存储器，但是访问本节点内的存储器所需要的时间，比访问某些远程节点内的存储器所花的时间要少得多。
 
 <br><br>
-## 存储节点(None)
+### 存储节点(None)
 <br>
 
 <font color=#1c1c1c size=4> TODO </font>
-<br><br>
 
-## 内存管理区(Zone)
+
+### 内存管理区(Zone)
 &emsp;&emsp;&emsp; Linux系统把物理内存划分为三个层次来管理。
 
 #### 物理内存层次
@@ -98,37 +96,94 @@
 
 * 页面(Page): 内存被细分为的多个页面帧,页面是最基本的页面分配单位。
 
-#### 为什么要将内存node分成不同的区域zone
+#### 为什么要将内存node分成不同的区域zone?
 &emsp;&emsp;&emsp; NUMA结构下, 每个处理器CPU与一个本地内存直接相连, 而不同处理器之前则通过总线进行进一步的连接, 因此相对于任何一个CPU访问本地内存的速度比访问远程内存的速度要快, 而Linux为了兼容NUMA结构, 把物理内存相依照CPU的不同node分成簇, 一个CPU-node对应一个本地内存pgdata_t。
+<br>
 &emsp;&emsp;&emsp;  这样已经很好的表示物理内存了, 在一个理想的计算机系统中, 一个页框就是一个内存的分配单元, 可用于任何事情:存放内核数据, 用户数据和缓冲磁盘数据等等. 任何种类的数据页都可以存放在任页框中, 没有任何限制。
 
+<br><br>
 ##### 但是Linux内核又把各个物理内存节点分成个不同的管理区域zone, 这是为什么呢?
 &emsp;&emsp;&emsp; 因为实际的计算机体系结构有硬件的诸多限制, 这限制了页框可以使用的方式。尤其是, Linux内核必须处理80x86体系结构的两种硬件约束。
 
 * ISA总线的直接内存存储DMA处理器有一个严格的限制 : 他们只能对RAM的前16MB进行寻址
 * 在具有大容量RAM的现代32位计算机中, CPU不能直接访问所有的物理地址, 因为线性地址空间太小, 内核不可能直接映射所有物理内存到线性地址空间, 我们会在后面典型架构(x86)上内存区域划分详细讲解x86_32上的内存区域划分。
 
+<html>
 <font color=#F08080	 size=3>&emsp;&emsp;&emsp;注:
 <br>
-&emsp;&emsp;&emsp; 因此Linux内核对不同区域的内存需要采用不同的管理方式和映射方式, 因此内核将物理地址或者成用zone_t表示的不同地址区域。
+&emsp;&emsp;&emsp; 1. 因此Linux内核对不同区域的内存需要采用不同的管理方式和映射方式, 因此内核将物理地址或者成用zone_t表示的不同地址区域。
 </font>
-
+</html>
 
 ### 内存管理区类型Zone_type
 &emsp;&emsp;&emsp; 由于硬件的一些约束,低端的一些地址被用于DMA,当实际内存大小超过了内核所能使用的线性地址的时候,一些高处地址处的物理地址不能简单持久的直接映射到内核空间。因此,内核将内存的节点node分成了不同的内存区域方便管理和映射。
 
+#### IA32内核区域Zone分布
 <br>
-![](./imgs/zone.png)
+![zone](imgs/zone.png "memory zone")
 <br>
 
+```bash
+enum zone_type {
+#ifdef CONFIG_ZONE_DMA
+        /*
+         * ZONE_DMA is used when there are devices that are not able
+         * to do DMA to all of addressable memory (ZONE_NORMAL). Then we
+         * carve out the portion of memory that is needed for these devices.
+         * The range is arch specific.
+         *
+         * Some examples
+         *
+         * Architecture         Limit
+         * ---------------------------
+         * parisc, ia64, sparc  <4G
+         * s390                 <2G
+         * arm                  Various
+         * alpha                Unlimited or 0-16MB.
+         *
+         * i386, x86_64 and multiple other arches
+         *                      <16M.
+         */
+        ZONE_DMA,
+#endif
+#ifdef CONFIG_ZONE_DMA32
+        /*
+         * x86_64 needs two ZONE_DMAs because it supports devices that are
+         * only able to do DMA to the lower 16M but also 32 bit devices that
+         * can only do DMA areas below 4G.
+         */
+        ZONE_DMA32,
+#endif
+        /*
+         * Normal addressable memory is in ZONE_NORMAL. DMA operations can be
+         * performed on pages in ZONE_NORMAL if the DMA devices support
+         * transfers to all addressable memory.
+         */
+        ZONE_NORMAL,
+#ifdef CONFIG_HIGHMEM
+        /*
+         * A memory area that is only addressable by the kernel through
+         * mapping portions into its own address space. This is for example
+         * used by i386 to allow the kernel to address the memory beyond
+         * 900MB. The kernel will set up special mappings (page
+         * table entries on i386) for each page that the kernel needs to
+         * access.
+         */
+        ZONE_HIGHMEM,
+#endif
+        ZONE_MOVABLE,
+        __MAX_NR_ZONES
+};
+```
+
 <br>
-![](./imgs/zone_type.png)
+![zone_type](./imgs/zone_type.png)
 <br>
 
 &emsp;&emsp;&emsp; 不同的管理区的用途是不一样的,ZONE_DMA类型的内存区域在物理内存的低端,主要是ISA设备只能用低端的地址做DMA操作。ZONE_NORMAL类型的内存区域直接被内核映射到线性地址空间上面的区域(line address space), ZONE_HIGHMEM将保留给系统使用,是系统中预留的可用内存空间,不能被内核直接映射。
- 
-<br>
-# 以下内容待整理.....
+
+
+## 以下内容待整理.....
 
     
 * CPU开启MMU之后,CPU访问的就是虚拟地址,如果需要访问物理地址需要通过MMU地址映射进行访问(只有MMU可以看到物理地址).
