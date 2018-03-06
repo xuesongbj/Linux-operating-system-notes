@@ -119,9 +119,9 @@
 &emsp;&emsp;&emsp; 由于硬件的一些约束,低端的一些地址被用于DMA,当实际内存大小超过了内核所能使用的线性地址的时候,一些高处地址处的物理地址不能简单持久的直接映射到内核空间。因此,内核将内存的节点node分成了不同的内存区域方便管理和映射。
 
 #### IA32内核区域Zone分布
-<br>
 ![zone](imgs/zone.png "memory zone")
-<br>
+
+#### Zone类型数据结构
 
 ```bash
 enum zone_type {
@@ -175,10 +175,6 @@ enum zone_type {
         __MAX_NR_ZONES
 };
 ```
-
-<br>
-![zone_type](./imgs/zone_type.png)
-<br>
 
 &emsp;&emsp;&emsp; 不同的管理区的用途是不一样的,ZONE_DMA类型的内存区域在物理内存的低端,主要是ISA设备只能用低端的地址做DMA操作。ZONE_NORMAL类型的内存区域直接被内核映射到线性地址空间上面的区域(line address space), ZONE_HIGHMEM将保留给系统使用,是系统中预留的可用内存空间,不能被内核直接映射。
 
