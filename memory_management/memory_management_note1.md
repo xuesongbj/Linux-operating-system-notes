@@ -2,9 +2,11 @@
 
 ## 摘要
 * MMU与分页机制
+* 内存模型
 * 内存Zone
 * Linux Buddy分配算法
-* DMA和CMA(连续内存分配器)
+* CMA技术(连续内存分配器)
+* 名词解释
 
 
 ## MMU与分页机制
@@ -183,88 +185,85 @@ enum zone_type {
 &emsp;&emsp;&emsp; 不同的管理区的用途是不一样的,ZONE_DMA类型的内存区域在物理内存的低端,主要是ISA设备只能用低端的地址做DMA操作。ZONE_NORMAL类型的内存区域直接被内核映射到线性地址空间上面的区域(line address space), ZONE_HIGHMEM将保留给系统使用,是系统中预留的可用内存空间,不能被内核直接映射。
 
 
-## 以下内容待整理.....
+### ZONE_DMA 
+&emsp;&emsp;&emsp; DMA相对于内存与cpu相对于内存一样,可以直接访问内存。由于某些DMA引擎可能存在缺陷,并不一定能访问所有内存(如,x86 ISA总线上的DMA引擎在访问内存时,地址总线只能访问到16M以下,其硬件根本访问不了16M以上的内存),因此才会有ZONE_DMA。ZONE_DMA分配多大内存由硬件决定。例如,某些体系结构在内存的任何地址上执行DMA都没有问题,在这些体系结构上,ZONE_DMA为空。
+<br>
+&emsp;&emsp;&emsp; ZONE_DMA的内存不是专用于DMA的,而是有缺陷的DMA要申请内存时,从这个区域申请,如某个驱动模块不是专用于DMA的,而是有缺陷的DMA要申请内存时,从这个区域申请,如某个驱动模块调用void *dma_alloc_coherent(struct_device *dev, size_t size, dma_addr_t *handle, gfp_t gfp);函数申请一个ZONE_DMA内存区域时,需要讲gfp参数写为GFP_DMA。
 
-    
-* CPU开启MMU之后,CPU访问的就是虚拟地址,如果需要访问物理地址需要通过MMU地址映射进行访问(只有MMU可以看到物理地址).
-
-* 例子:
-    假设访问虚拟地址0x12345670,Page table页内虚拟地址0x12345000(页号)对应的物理内存为1M.那么0x12345670对应的物理地址为1M＋0x670(页偏移).
-
-* cpu 首先查看TLB看是否有虚拟地址0x12345000和物理地址的映射关系,如果Hit,则MMU直接访问1M+0x670物理内存地址;如果TLB Miss,则查看Page table,MMU再去访问1M+0x670物理内存,同时将内存映射关系缓存在TLB一份。
-
-* 备注:
-    1. Page table位于内存中,TLB位于在cpu内部(硬件级页表缓存部件)。
-    2. 每个进程都有单独的page table,当进程发生切换时通过更改寄存器值,进程虚拟地址和新的page table关联。
-    3. 虚拟地址是一个指针,物理地址是一个整数。
-
-
-
-
-
-
-
-
-
-
-### 虚拟存储器保护工具
-    现在计算机系统必须为操作系统提供手段来控制对存储器系统的访问。不应该允许一个用户进程修改它的只读文本段,而且也不应该允许它读或者修改任何内核中的代码和数据结构。不应该允许它读或者写其它进程的私有存储器,并且不允许它修改任何与其它进程共享的虚拟页面,除非所有的共享者都显示地允许它这么做.
-
-    每次CPU生成一个地址时,地址翻译硬件都会读一个PTE(也表条目),所以通过在PTE上添加一些额外的许可位来控制对一个虚拟页面内容的访问.每个PTE增加了三个许可位。SUP位表示进程是否必须运行在内核(超级用户)模式下才能访问该页。运行在内核模式中的进程可以访问任何页面,但是运行在用户模式中的进程只允许访问那些SUP 为0的页面READ位、WRITE位控制对页面的读和写访问.如果一条指令违反了这些许可条件,那么CPU就触发一个一般保护故障,将控制传递给一个内核中的异常处理程序.Unix外壳一般将这种异常报告为"段/页错误"(segmentation/page fault)。
-
-* PTE(页表项)除了RWX权限之外,还有一个访问权限:
-    1. 当前页表项,内核态可以访问。
-    2. 当前页表项,用户态可以访问。
-    3. 当前页表项,只能在内核态访问。
-
-`MMU硬件比较牛逼的地方就是,可以指定PTE仅可以被内核态进行访问。这样所有的用户态进程都无法读取到内核态内容。前一段Intel 出现的Meltdown漏洞,就是用户态进程可以读取到内核态内容。`
-
-```
-a[256];                     // 每个成员4096,每个成员4096,保证每个成员间尽可能隔的远些。保证不会被读进cache.
-c = *k->内存管理会拦截k     // k是内核地址,假设内存是c
-a[c]                        // 这里导致cache命中
-
-for(...)
-    a[i]                    // a[0] ~ a[255] 哪个读地最快,就证明k地址存的是哪个:
-```
-
-* 备注:
-    1. 有CPU没有MMU硬件,但会有MPU硬件.它主要用做内存保护,不能做虚实映射.更详细的MPU这里不再深入阐述,感兴趣同学可以进行Wikipad.
-    2. page fault:
-        > 虚拟地址没有对应的物理地址
-        > 虚拟地址有对应的物理地址,如果进程向.text写操作,由于代码段只有(RX)权限。此时也会出现"page fault"错误,并且该进程会异常退出。
-
-### 名词解释
-* 页:
-* 页表:
-* TLB:
-* 页帧:
-* 页框:
-
-## DMA
-
-###DMA引擎(DMA Engine)
-    DMA引擎就是DMA控制器,从软件上说,从软件上来说，其实就是一个dma框架，在该框架下针对你的具体dma控制器开发出dma驱动,然后其他drivers比如audio,network,crypto等就都可以调用统一的dma相关的api来使用你的dma。
-    DMA引擎和CPU都可以访问物理内存任何一个地址.当DMA和CPU同时访问内存时,硬件上有一个仲裁器会判断谁的优先级高,谁就可以访问内存.DMA并不是可以访问所有内存,而是有限制的,只可以访问指定zone内内存。
+#### DMA引擎(DMA Engine)
+&emsp;&emsp;&emsp;  DMA引擎就是DMA控制器,从软件上说,从软件上来说，其实就是一个dma框架，在该框架下针对你的具体dma控制器开发出dma驱动,然后其他drivers比如audio,network,crypto等就都可以调用统一的dma相关的api来使用你的dma。
+<br>
+&emsp;&emsp;&emsp; DMA引擎和CPU都可以访问物理内存任何一个地址.当DMA和CPU同时访问内存时,硬件上有一个仲裁器会判断谁的优先级高,谁就可以访问内存.DMA并不是可以访问所有内存,而是有限制的,只可以访问指定zone内内存。
 
 #### GFP_DMA:
-    外设驱动在申请内存时,可以带入GFP_DMA标记。当系统有ZONE_DMA,则从DMA区域分配内存.没有该标记则从ZONE_NORMAL分配.因此想利用ZONE_DMA需要排除其它驱动不再使用此标记.
+&emsp;&emsp;&emsp; 外设驱动在申请内存时,可以带入GFP_DMA标记。当系统有ZONE_DMA,则从DMA区域分配内存.没有该标记则从ZONE_NORMAL分配.因此想利用ZONE_DMA需要排除其它驱动不再使用此标记。
 
-#### ZONE_HIGHMEM:
-    高端内存HIGH_MEM地址空间范围为0xF8000000 ~ 0xFFFFFFFF(896MB~1024MB).那么内核如何借助128MB高端内存空间地址(虚拟地址空间)是如何实现访问所有物理内存?
-    当内核想访问高于896MB物理地址内存时,从0xF8000000~0xFFFFFFFF地址空间范围内找一段相应大小空闲的逻辑地址空间,借用一会儿。借用这段逻辑地址空间,建立映射到想访问那段物理内存(即填充内核PTE页面表),临时用一会儿,用完后归还.这样别人也可以借用这段地址空间访问其它物理内存，实现了使用有限的地址空间,访问所有物理内存.
+#### DMA 访问内存流程图
+![dma](imgs/dma.png "dma")
 
-#### NorMal_zone:
-    这个区包含的都是能正常映射的页。
+### ZONE_HIGHMEM
+&emsp;&emsp;&emsp; 在IA32下,0~3G是用户空间的虚拟地址,3G~4G是内核空间的虚拟地址。Linux 为了使内核访问内存简单化,机器开始启动就把一段物理地址直接线性映射(映射并非被占用)到3G以上的虚拟地址。
+<br>
+&emsp;&emsp;&emsp; 注意,物理内存可能大于1G,是无法全部线性映射到3G~4G的虚拟地址空间。所以,Linux直接在物理内存上做了界限(32位X86系统这个界限为896MB),低于这个界限的才做一一映射,低于这个界限的称为Low memory。高于这个界限的称为High memory。
+<br>
+&emsp;&emsp;&emsp; Low memory 包含了ZONE_NORMAL、ZONE_DMA。注意,Low memory虽然开机即线性映射,但并不意味着Low memory已经被内核用掉,内核要使用内存时与应用程序一样需要申请的。Low memory的物理地址和虚拟地址是一个直接的线性映射,可以使用内核API:phys_to_virt和virt_to_phys在物理地址和虚拟地址之间直接映射,而High memory则不能用这两个API。
+<br>
+&emsp;&emsp;&emsp; 内核空间一般不使用High memory,kmalloc申请的内存一般都在Low memory。内核空间使用High memory时调用kmap进行映射。x86会把High memory映射到虚拟地址3GB以上,而ARM会映射到3G-2MB ~ 3G。如下图所示:
+
+#### 32位X86
+![high_zone](imgs/high_zone.png "high_zone")
+
+#### 32位ARM
+![high_zone_arm](imgs/high_zone_arm.png "high_zone_arm")
+
+### ZONE_NORMAL
+&emsp;&emsp;&emsp; ZONE_NORMAL就是正常可寻址的页。
+ 
+
+&emsp;&emsp;&emsp; 综合上述,High memory 产生的原因是不可能在虚拟地址映射区将所有的物理地址都做一一映射;ZONE_DMA产生的原因是DMA引擎硬件缺陷导致。x86_32分区总结如下:
+|Zone|描述|物理内存|
+|-|-|-|
+|ZONE_DMA|DMA使用的页|<16MB|
+|ZONE_NORMAL|正常可寻址的页|16~896MB|
+|ZONE_HIGHMEM|动态映射的页|>896BM|
+
+<br>
+&emsp;&emsp;&emsp; 注意:Zone的划分没有任何物理意义,只不过是内核为了管理页而采取的一种逻辑上的分组。
+
+## Linux Buddy算法
+
+### Buddy算法
+&emsp;&emsp;&emsp;  Buddy是所有Zone内存管理统一的算法。free_area对应一个域中的物理页面，页面的管理采用buddy算法。在buddy算法中物理内存被分为11个组，其中第0,1，N个组分别对应2^0、2^n个连续物理界面。当分配2^n个页面是就会到相应的组去寻找，若没有则向下寻找同时向上递归合并空闲块。
+<br>
+&emsp;&emsp;&emsp;  Buddy算法最主要的特点就是任何区域里的空闲内存都以2^n次方进行拆分和合并。例如,假设ZONE_NORMAL有16页内存(2^4),此时有人申请1页内存,Buddy算法会把剩下的15页拆分成8+4+2+1,放到不同的链表中。此时再申请4页,直接给4页,若再申请4页,则从8页中给4页,正好剩下4页。Buddy算法的精髓在于任何正整数都可以拆分成2^n次方之和。
+
+#### Buddy 算法
+![buddy](imgs/buddy.png "buddy")
+ 
+&emsp;&emsp;&emsp;  可以通过/proc/buddyinfo查看内存空闲的一些情况。
+
+#### /proc/buddyinfo
+![buddyinfo](imgs/buddyinfo.png "buddyinfo")
+
+### Buddy算法缺点
+&emsp;&emsp;&emsp; 应用程序的虚拟地址映射到哪页物理地址,物理地址连续是否都无所谓。但DMA引擎中没有MMU,有时候需要连续物理内存。比如,一个Cache中有一个DMA,需要用DMA将拍摄的一张图片从camera搬移到内存,这时DMA申请连续16MB内存进行搬移,但此时即物理内存空闲100M(但不连续),DMA也申请不到的。
+
+### CMA(Contiguous Memory Allocator)算法
+&emsp;&emsp;&emsp; Buddy算法会导致内存碎片化(空闲内存很多,但连续内存很少),为了解决camera例子的问题,Linux可以开机就将16MB内存预留给camera,即使不用也占用着浪费掉,而CMA技术就是为了避免内存浪费,使16MB内存不预留,应用程序可以用,一旦camera要用,CMA把这16MB内存挤出去给camera。
+
+#### 解决Buddy算法内存碎片方法
+![cma](imgs/cma.png "cma")
+
+<br>
+&emsp;&emsp;&emsp; 由于应用程序的虚拟地址映射到哪个物理地址,连续是否都无所谓,甚至将虚拟地址move到别的物理地址都没有关系,只要虚拟地址不变应用程序都不会察觉。所以一般应用程序申请内存时可以附带movable标记,Linux就可以把movable标记的应用程序的内存申请放到CMA区域中。当camera DMA申请内存时,就"漫山遍野"申请很多4k(一页)内存,把movable标记应用程序搬移到这些内存中去,注意搬移内存会修改应用程序的页表项。虽然虚拟地址不变,但到物理地址的映射已经改变。这样之前的16MB内存就被挤出去给camera的DMA了。
+
+#### CMA工作机制
+![cma2](imgs/cma2.png "cma2")
+
+<br>
+&emsp;&emsp;&emsp; 注意:CMA是与DMA的API结合起来使用的,当使用DMA的API申请内存时,才会出发CMA机制。可以在dts中指定哪一段内存做CMA,既可以指定一个默认全局的CMA池,也可以给某一个特定的设备指定一个CMA池。具体实现方法详见内核文档:Documentation/devicetree/bindings/reserved-memory/reserved-memory.txt 
 
 
-## BUDDY算法
-    所有zone内存管理统一的算法 - buddy算法.
-
-    buddy 会存在产生大量的0和1页的内存。这样有很多不连续的物理内存,对于通过CPU MMU使用内存方式没有太多问题。因为只要虚拟地址是连续的可以,物理内存是否连续无所谓(性能忽略不计);但对于DMA这种直接访问内存方式会存在问题.
-
-### Buddy算法缺点:
-    Buddy算法会导致内存碎片化(空闲内存很多,但连续内存很少)
-
-### CMA(Contiguous Memory Allocator) 连续内存分配器:
-    在内存条中找一条内存,当DMA需要使用的时候,让外设使用。如果外设不使用时候,将该内存分配给其它进程实用。CMA不是独立存在,而是和DMA API联合实用。当通过DMA API申请内存时可以使用CMA。DMA底层可以是CMA,也可以是IOMMU等
+### 名词解释
+* 页表: 页表时一种特殊的数据结构,放在系统空间的页表区,存放逻辑页与物理页帧的对应关系。每一个进程都拥有一个自己的页表。PCB表中有指针指向页表。
+* TLB: TLB(Translation Lookaside Buffer)转换检测缓冲区是一个内存管理单元,用于改进虚拟地址到物理地址转换速度的缓存。
