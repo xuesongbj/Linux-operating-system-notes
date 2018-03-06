@@ -11,6 +11,3 @@
 
 ## 学习方法:
 &emsp;&emsp;&emsp; 学习内存管理,首先需要对内存管理有宏观的认识。不要开始就过于陷入细节,这样很容易让你对内存学习感到绝望。理解知识,需要陷入到Linux本身,从硬件、底层内存分配算法、内核内存分配算法、用户应用程序和内核交互、内存和磁盘缓存、内存和磁盘替换等。当对这些内容理解之后,对整体脉络、主干理解,等具备了这些能力之后,再进行学习具体的数据结构、算法。
-
-![vm_pm]
-(https://github.com/xuesongbj/Linux-operating-system-notes/raw/master/memory_management/imgs/vm_pm.png)
