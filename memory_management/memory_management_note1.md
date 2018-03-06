@@ -45,9 +45,16 @@
 #### 虚拟地址Vs.物理地址
 &emsp;&emsp;&emsp; "虚拟地址"是个指针,"物理地址"是个整数(32位或者64位整数,不是指针),可参考内核代码对物理地址定义(include/linux/types.h):
 
-#### 物理内存phys_addr数据类型 
-![phys_addr](imgs/phys_addr.png "phys_addr")
+#### phys_addr
+```bash
+#ifdef CONFIG_PHYS_ADDR_T_64BIT
+typedef u64 phys_addr_t;
+#else
+typedef u32 phys_addr_t;
+#endif
 
+typedef phys_addr_t resource_size_t;
+```
 
 #### TLB(Translation Looksize Buffer)
 &emsp;&emsp;&emsp; 由于页表访问速度很慢(Page table位于内存中)。引出MMU的核心部件TLB(硬件级页表缓存部件,cpu内部硬件),TLB是MMU核心部件,它缓存少量的虚拟地址和物理地址的转换关系,是转换表的Cache,俗称"快表"。
