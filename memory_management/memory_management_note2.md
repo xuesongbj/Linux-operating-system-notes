@@ -14,13 +14,13 @@
 ### Buddy算法问题
 &emsp;&emsp;&emsp; 通过第一部分学习,咱们知道内存所有的ZONE都通过Buddy算法进行管理。在buddy算法中空闲物理内存会被分为11个组，其中第0,1，N个组分别对应2^0、2^n个连续物理界面。当需要申请的内存小于1页(4K),Buddy算法也会分配1页(4K)。此时再使用Buddy算法进行分配粒度太大了,对内存是一种极大的浪费。
 
-#### buddy算法缺点
+* 
 ![buddy](imgs/buddy_2.png "buddy")
 
 ## Slab
 &emsp;&emsp;&emsp; Buddy的最小单位是页(4k), 无论是内核还是用户程序都会申请一些更小的内存。所以在在Linux中对heap(堆)内存进行了二次管理,从Buddy拿到的内存(1K,4K,8K....)再次进行分割管理,这种就是Slab。
 
-#### slab 内存管理示意图
+
 ![slab](imgs/slab_2.png "slab")
 
 ### slab原理
