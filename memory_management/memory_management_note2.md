@@ -64,7 +64,7 @@
 *
 ![slab](imgs/slab_2.png "slab")
 
-### malloopt
+### mallopt
 &emsp; &emsp; &emsp; malloopt是libc库的函数,主要控制对二级内存分配器内存的控制。mallocopt可以控制libc把内存归还给内核的阈值。M_TRIM_THRESHOLD可以设置mmap收缩的阈值,默认值128K。当累计达到阈值时,free之后才将内存归还给内核M_TRIM_THRESHOLD的值必须设置为页大小对其,设置为-1会关闭内存收缩设置(libc库永远不会讲内存还给Linux内核)。
 
 * 
@@ -87,15 +87,61 @@
 &emsp; &emsp; &emsp; 如上图所示,如果用户空间malloc申请了low memory zone白色圆圈内存,此时需要修改页表,标记用户空间2G虚拟地址映射到物理内存low memory zone 1页内存。当这一页4k物理内存被申请之后,kmalloc、vmalloc以及用户空间malloc都不能在申请这一页内存了。
 
 #### kmalloc、vmalloc、malloc、ioremap 区别
+&emsp; &emsp; &emsp; kmalloc和vmalloc分配的是内核的内存,malloc分配的事用户的内存。kmalloc保证分配的内存在物理上是连续的,vmalloc保证的是虚拟地址空间连续。
+<br>
 &emsp; &emsp; &emsp;  malloc、vmalloc申请内存需要修改页表,kmalloc申请内存时无需修改页表(kmalloc开机时虚拟内存已经和low memory进行了映射)。如果low memory zone内存被用户空间已经申请,此时也需要修改内核空间页表。一旦low memory zone内存被用户申请,内核空间就不能访问该内存。虽然不能被内核空间访问,但已经被low memory zone映射区映射(此时,该物理页被映射到两个虚拟地址)。
 <br>
+
+
+#### vmalloc
+&emsp; &emsp; &emsp; 用于申请较大的内存空间,虚拟内存时连续的,物理内存不连续。一般情况下,只有硬件设备才需要物理地址连续的内存。因为硬件设备往往存在于MMU之外,根本不了解虚拟地址;但为了性能考虑,内核中一般使用kmalloc(),而只有在需要得大块儿内存时才使用vmalloc(),例如当模块被动态加载到内核当中时,就把模块装载到由vmalloc()分配的内存上。
+
+* /linux-4.16-rc4/mm/vmalloc.c
+
+```bash
+/**
+ *      vmalloc  -  allocate virtually contiguous memory
+ *      @size:          allocation size
+ *      Allocate enough pages to cover @size from the page level
+ *      allocator and map them into contiguous kernel virtual space.
+ *
+ *      For tight control over page level allocator and protection flags
+ *      use __vmalloc() instead.
+ */
+void *vmalloc(unsigned long size)
+{
+        return __vmalloc_node_flags(size, NUMA_NO_NODE,
+                                    GFP_KERNEL);
+}
+EXPORT_SYMBOL(vmalloc);
+```
+<br>
+&emsp; &emsp; &emsp; vmalloc一般申请比较大内存,并且对物理内存连续性没有要求的情况下使用。vmalloc一般分配的内存比较大,直接从buddy拿,没必要从slab拿;而kmalloc从slab分配器拿内存(如果分配内存>128K,则直接从Buddy拿内存。128K需要进一步确认!)。
+<br>
 &emsp; &emsp; &emsp; 寄存器是通过ioremap往vmalloc区域映射的。当调用ioremap时,需要更改页表,将vmalloc映射区虚拟地址和寄存器物理地址进行映射。
+<br>
+&emsp; &emsp; &emsp; 通过查看/proc/vmallocinfo可以看到ioremap申请的内存,被映射到vmalloc区域。
 
-
-#### Vmalloc
-Todo
+* 
+![vmallocinfo](imgs/vmallocinfo.png "vmallocinfo")
 
 #### 分配和映射区别
-Todo
+&emsp; &emsp; &emsp; 内存分配则表示内存被划分掉了,其它虚拟地址不能再映射到该地址;映射则表示虚拟地址通过MMU将物理地址产生映射关系,但页内存还是可以被其它虚拟地址分配掉。
+
+### 内存分配Lazy行为
+&emsp; &emsp; &emsp; Linux系统总是以最懒惰的行为为应用程序分配内存,当调用malloc()函数申请内存后,并没有真正申请成功。之后当发生写操作时操作系统才会给你真正的分配内存。
+&emsp; &emsp; &emsp; 例如,在用户空间申请100M内存时,并没有真的申请成功,只有100M内存中的任意一页被写的时候才真的成功;用户空间申请100M内存时,Linux内核将这100M内存中的每一个4K都以只读的形式映射到一个全部清零的页面(其实不太符合heap的定义,heap一般都是可读可写的),当任意一个4K被写的时候即发生page fault(注意以页为单位发生page fault),Linux 内核收到缺页中断后就可以从硬件寄存器中读取到缺页中断的地址和发生的原因。之后Linux内核根据缺页中断报告的虚拟地址和原因分析出是用户程序在写malloc的合法区域。此时,Linux内核会从内存中申请一页内存,执行copy to write,把全部清零的页面重新拷贝给新申请的页面。然后把进程的PTE(页表项)的虚拟地址指向一个新的物理地址。同时,页表中这一页地址的权限页修改为R+W的。
+
+* 
+![vss_rss](imgs/vss_rss.png "vss_rss")
+
+&emsp; &emsp; &emsp;  图中第一步,heap初始化为8K并且写入8k,所以RSS为8K;第二步调用brk扩展heap为16K,此时VSS变为16K,但RSS仍然是8K;第三步,写heap的第三页发生Page fault;第四步,写时拷贝,RSS变成12K。依次类推,写第四步成功后RSS才会变成16K。
+<br><br>
+
+&emsp; &emsp; &emsp; 注: Lazy机制可以理解为"欺骗应用程序"。但在内核空间调用kmalloc是不欺骗的,要么分配成功,要么分配失败。
+
+
+### OOM
+[![asciicast](https://asciinema.org/a/9yiKlmm7anssbvt2nUY14pazy.png)](https://asciinema.org/a/9yiKlmm7anssbvt2nUY14pazy)
 
 ### 明天开搞...
