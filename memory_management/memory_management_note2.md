@@ -142,6 +142,26 @@ EXPORT_SYMBOL(vmalloc);
 
 
 ### OOM
+&emsp; &emsp; &emsp; Linux在运行时会对每一个进程进行Out of Memory打分(进程耗费越高,Score分数越高)。可以通过/proc／pid/oom_score查看每个进程的score分数。一旦内存耗尽,Linux内核会Kill掉当前oom_score分值最高的进程。
+
+* 
 [![asciicast](https://asciinema.org/a/9yiKlmm7anssbvt2nUY14pazy.png)](https://asciinema.org/a/9yiKlmm7anssbvt2nUY14pazy)
 
-### 明天开搞...
+<br>
+&emsp; &emsp; &emsp; 如上实例,swapoff -a 将交换分区关闭,并配置overcommit_memory 为1(允许应用程序申请很大内存,而内核不再去评估系统当前有多少内存可用。)。sudo sh -c 'echo 1 > /proc/sys/vm/overcommit_memory'(echo 不会启动一个新的进程,所以加sh -c,在新的shell中执行,这样做sudo才有效)。可以发现在运行一段时间后此程序被杀死。
+
+#### OOM打分因子
+&emsp; &emsp; &emsp; OOM打分还会看一些其它的因子,如下图所示:
+![oom](imgs/oom_2_1.png "oom")
+
+#### OOM实例
+&emsp; &emsp; &emsp; 如下实例,启动一个进程firefox,同样关闭swap分区并配置overcommit_memory为1,然后将firefox的oom_score调到最高,然后运行如上实例,观察那个进程先被Kill。
+
+* 
+![oom](imgs/oom_2_2.png "oom")
+
+<br>
+&emsp; &emsp; &emsp; 如图所示,写入oom_adj的数值越大,导致oom_score的打分越高,越容易被kill,此时写入不需要root权限,但想使其打分值改小则需要root权限,这也是符合现实意义了。如上实例进程运行发现,由于firefox的oom_score更高,所以先被kill,但一段时间过后再次发生Out of memory,test进程也被kill。
+
+
+### End.
