@@ -26,7 +26,7 @@
 [![asciicast](https://asciinema.org/a/nt1jh1UyxwrijwPsJb1ttqbG5.png)](https://asciinema.org/a/nt1jh1UyxwrijwPsJb1ttqbG5)
 
 <br>
-&emsp;&emsp;&emsp; 观察pmap结果及maps,smaps文件。可以发现IA32下,一个进程VMA是在0~3G之间分散分布的,是一段一段的,中间会有很多空白区域,空白区域对进程来说都是不能访问的,VMA中会标注这一段的RWX的具体权限。当进程指针访问这些非法空白区域时,由于没有和物理内存进行映射,所以会出现"Page fault"异常,linux内核捕捉到该信号,发送信号,然后进层就会挂掉。如下图所示:
+&emsp;&emsp;&emsp; 观察pmap结果及maps,smaps文件。可以发现IA32下,一个进程VMA是在0~3G之间分散分布的,是一段一段的,中间会有很多空白区域,空白区域对进程来说都是不能访问的,VMA中会标注这一段的RWX的具体权限。当进程指针访问这些非法空白区域时,由于没有和物理内存进行映射,所以会出现"Page fault"异常,linux内核捕捉到该信号,发送信号,然后进程就会挂掉。如下图所示:
 
 * 
 ![PMAP](imgs/pmap.jpg "pmap")
@@ -37,7 +37,7 @@
 *
 ![VMA](imgs/VMA.jpg "vma")
 
-&emsp;&emsp;&emsp;  注意: 在VMA中区域并不一定在内存。如调用malloc韩素申请100M内存,VMA会有100M。通过pmap查看时,可以看到它的VSS大小为100M。它的权限是RW(可读可写)。
+&emsp;&emsp;&emsp;  注意: 在VMA中区域并不一定分配内存。如调用malloc函数申请100M内存(malloc VMA会有100M内存(VSS))。通过pmap查看时,可以看到它的VSS大小为100M。它的权限是RW(可读可写)。
 
 ### linux VMA管理
 
