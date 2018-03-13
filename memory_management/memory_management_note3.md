@@ -68,4 +68,134 @@
 |发生缺页必须读硬盘,如上图4)。有IO行为,处理时间长|发生缺页直接申请到内存,如:malloc内存,写时发生无IO行为,处理时间相对major短|
 <br>
 &emsp;&emsp;&emsp; 综述,page fault(Minor和Major行为是建立在合法区域的page fault)后,Linux会查VMA,也会对比VMA中和页表中的权限,体现出VMA的重要性。
+<br><br>
+
+## 内存被进程如何瓜分
+![process_memory](imgs/process_memory.png "process_memory")
+<br>
+&emsp;&emsp;&emsp; 上图中展示的一根内存条如何被三个进程瓜分的。其中中间位置是一根内存条,然后分别被进程1044、1045和1054三个进程瓜分内存资源。每个进程都有Page table(通过上图可以看到),每个进程的代码段、堆、共享库、数据段等通过页表映射到物理内存地址。通过上图可以得知,如果多个进程共享库(libc)或者两个相同进程的代码段相同,则可以将多个进程的虚拟地址映射到相同位置物理页。但每个进程的数据段必须是独立的。
+<br>
+&emsp;&emsp;&emsp; 上图中,page table之上的就是虚拟地址空间(VSS);page table之下的就是物理内存(RSS)。
+
+### 进程VSS、RSS、PSS、USS
+&emsp;&emsp;&emsp; 首先,我们评估一个进程的内存消耗都是指用户空间的内存,不包括内核空间的内存消耗。即IA32下,虚拟地址在0～3G的部分所对应的物理地址的内存。
+
+* VSS - Virtual Set Size(虚拟内存占用)
+* RSS - Resident Set Size(驻留内存占用)
+* PSS - Proportional Set Size(按比例内存占用)
+* USS - Unique Set Size(独享内存占用)
+
+* 
+![vss](imgs/vss.png "vss")
+<br>
+&emsp;&emsp;&emsp; 1044,1045,1054三个进程,每个进程都有一个页表,对应其虚拟地址如何向Real memory 转换。
+
+&emsp;&emsp;&emsp;  process 1044的1,2,3 都在虚拟地址空间,所以VSS = 1 + 2 + 3。
+<br>
+&emsp;&emsp;&emsp;  process 1044的4,5,6 都在real memory上,所以RSS = 4 + 5 + 6。
+
+#### 分析 Real memory的具体瓜分情况：
+&emsp;&emsp;&emsp; libc 代码段: 1044,1045,1054三个进程都使用了libc的代码段,被三个进程共享。
+<br>
+&emsp;&emsp;&emsp; bash shell的代码段: 1044,1045都是bash shell,被两个进程分享。
+<br>
+&emsp;&emsp;&emsp; 独占: 1044独占它自己的heap数据段。
+<br>
+&emsp;&emsp;&emsp; 所以,上图中4+5+6并不全是1044进程消耗内存,因为4明显被3个进程共享;5 明显被2个进程共享;所以衍生出了PSS(按比例内存占用)的概念。所以进程1044的PSS为: 4/3 + 5/2 + 6。
+<br>
+&emsp;&emsp;&emsp; 进程1044独占驻留内存6,所以进程1044 USS为:6。
+<br>
+&emsp;&emsp;&emsp; 一般情况下,VSS >＝ RSS >＝ PSS >＝ USS。
+
+
+## 内存查看及排查问题工具
+
+### smem
+&emsp;&emsp;&emsp; 评估进程内存消耗一般使用smem工具,查看PSS看到的是一种公平性,USS看到的是内存使用情况。
+
+
+* 命令行模式
+![smem](imgs/smem_1.png "smem")
+ 
+ 
+* 饼状图模式
+![smem](imgs/smem_2.png "smem")
+ 
+* 柱状图模式
+![smem](imgs/smem_3.png "smem")
+
+
+
+
+### smaps
+&emsp;&emsp;&emsp; 运行一个死循环程序,观察smaps文件。然后再把此程序跑一份,观察其smaps文件变化(smaps内容很长,只看第一段)
+
+* 
+![smaps](imgs/smaps_1.png "smaps")
+
+* 
+![smaps](imgs/smaps_2.png "smaps")
+
+&emsp;&emsp;&emsp; 以上两张图运行的程序相同。第一张图是第一次运行程序看到的smaps输出结果。第二张图是第二次运行程序看到原来进程的smaps输出结果。其中Size就是RSS,可以发现PSS由4K变为2K(两个程序共享该内存),而Shared_clean由0K变成4K(RSS中和其它进程共享页面)。Private_clean由4K变成0K(RSS中私有页面)。
+ 
+### 应用内存泄漏的界定方法
+* 内存泄漏: 进程运行的时间越长,耗费的内存越多,申请与释放不成对。
+* 内存泄漏只看USS即可。
+* 观察内存泄漏使用连续多点采样法
+
+* 
+![memory_monitor](imgs/memory_monitor.png "memory_monitor")
+
+### 内存泄漏检测工具
+
+#### valgrind
+通过valgrind检测代码是否有内存泄漏,代码如下:
+
+```c
+void main(void)
+{
+	unsigned int *p1, *p2;
+	while(1)
+	{
+		p1=malloc(4096*3);
+		p1[0] = 0;
+		p1[1024] = 1;
+		p1[1024*2] = 2;
+
+		p2=malloc(1024);
+		p2[0] = 1;
+		free(p2);      // p1 没有被free
+		sleep(1);
+	}
+}
+```
+
+* 
+![memory_leak](imgs/memory_leak.png "memory_leak")
+
+<br>
+&emsp;&emsp;&emsp; 通过使用valgrind 查看是否有内存泄漏。发现工申请了574次,但仅释放了287次。所以很直观看到有内存泄漏。
+
+#### addresssanitizer
+使用 addresssanitizer 中的 lsan 工具检测程序内存泄漏:
+
+* 
+![address_lsan](imgs/address_lsan.png "address_lsan")
+
+* 
+![memory_lsan](imgs/memory_lsan.png "memory_lsan")
+
+
+#### valgrind Vs. addressanitizer
+|valgrind|addressanitizer|
+|-|-|
+|将程序运行在一个虚拟机中,速度很慢|速度相对valgrind快|
+|不用重新编译程序|需要重新编译,添加-fscanitize=address参数,使用addressanitizer中的lsan功能|
+||需要GCC版本高于4.9|
+
+
+
+### End...
+
+
 
