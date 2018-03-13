@@ -115,13 +115,16 @@
 
 
 * 命令行模式
+<br>
 ![smem](imgs/smem_1.png "smem")
  
  
 * 饼状图模式
+<br>
 ![smem](imgs/smem_2.png "smem")
  
 * 柱状图模式
+<br>
 ![smem](imgs/smem_3.png "smem")
 
 
