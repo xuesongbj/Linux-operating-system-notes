@@ -74,6 +74,66 @@
 注意:
 <br>
 &emsp;&emsp;&emsp; cache可以通过/proc/sys/vm/drop_caches强行释放。1 释放 page cache, 2释放dentries和inode, 3 释放两者。
+<br>
 
-## 待续...
+## free命令的详细解释
+<br>
+![free](imgs/free_1.png "free")
+
+&emsp;&emsp;&emsp; Buffers与Cache都是文件系统的缓存,没有本质区别,唯一区别是背景不同:
+<br>
+<br>
+&emsp;&emsp;&emsp; 1.当以文件系统(ext4,xfs等)的形式访问文件系统中的文件(如,mount /dev/sda1 /mnt后,cat /mnt/file1),这类文件所产生的cache对应free命令的cache列。 
+
+* 验证
+![cache](imgs/free_cache.png "cache")
+&emsp;&emsp;&emsp; 验证之前,现将buffer和cache 清理干净,然后查看cache和buffer大小(buffer 3MB, cache 20MB)。然后读取一下/var/log/messages文件内容,message日志大小为17M,当读取完该文件之后,再次查看cache和buffer大小变化(buffer 3M, cache 38M)。20+17M约等于38M,这样就可以验证,通过文件系统读取文件,会以cache方式缓存。
+<br><br>
+&emsp;&emsp;&emsp; 2.直接访问/dev/sda1时,如果程序直接打开open("/dev/sda1")、直接dd命令或文件系统本身访问裸分区,所产生的cache对应free命令显示的buffers列。
+
+* 验证
+![buffers](imgs/free_buffers.png "buffers")
+&emsp;&emsp;&emsp; 将cat /dev/sda2 > /dev/null 执行之前和之后,可以发现buffers发生了很大变化。
+
+### 新版free命令
+
+![free_new](imgs/free_new.png "free_new")
+<br>
+&emsp;&emsp;&emsp; Linux内核3.4版本以后,free命令发生了改变,删除了第二行,增加了available。available可以评估当前还有多少内存可供应用程序使用。
+
+
+## file-backed的页面和匿名页
+![file_backed](imgs/file_backend.png "file_backed")
+<br><br>
+&emsp;&emsp;&emsp; Linux系统的Page cache和Cpu内部Cache工作原理一样,是可以被交换出去的(cpu cache是将数据交换到内存;page cache是将数据从内存交换到磁盘)。有文件背景的页面可以Swap到磁盘。EG,启动一个firefox应用程序,导出firefox进程smaps状态信息。然后再启动一个OOM的程序,再次导出firefox进程smaps状态信息。然后前后对比两个文件smaps文件内容,可以发现firefox在内存紧张的情况下,代码段、mmap的字体文件等都被swap出去而不再驻留内存了。
+<br>
+&emsp;&emsp;&emsp; 那么,没有文件背景的匿名页是如何交换回收的呐？是否常驻内存？对于有文件背景的页面和匿名页都需要swap(动词,交换),有文件背景的页面向自己的文件背景中交换,匿名页向swap分区(名词,swap分区)或swapfile(名词,swap文件)中交换。即使变异内核时将CONFIG_SWAP关闭(只是关闭了匿名页的交换),linux内核中kswapd线程还是会swap有文件背景的页面。
+
+![swap](imgs/swap_1.png "swap")
+
+
+### 内存回收
+![kswapd](imgs/kswapd_2.png "kswapd")
+<br>
+&emsp;&emsp;&emsp; Linux内存回收有三个水位线:min, low, high。一旦内存达到low水位线时,后台自动回收直到回收到高水位线。当内存达到min水位线时,则启动Direct reclaim,直接停止进程调度运行,直接在进程内进行内存回收。
+<br>
+&emsp;&emsp;&emsp; 在进行内存回收时,匿名页和有文件背景页面都有可能被回收,具体怎么平衡回收多少,有swappingess进行配置(/proc/sys/vm/swappiness)。当swappiness值比较大时,倾向回收匿名页;当swappiness值比较小时倾向回收有文件背景的页面。
+
+备注:数据段比较特殊,在没有写的情况下是有文件背景的,但被写入数据后就变成匿名页。
+
+
+## 页面回收和LRU
+![lru](imgs/lru.png "lru")
+<br>
+&emsp;&emsp;&emsp; Linux中内存页回收均使用LRU算法。如上图,运行到第四例时,第一页最不活跃。运行到第5列时又把第1页踏了一次,此时第2页变为最不活跃的.运行到第6页时又把第2页踏了一次,此时第3页变味最不活跃的。所以在第7列时,由于要访问一个新的第5页,3页被swap出去了。
+
+## Swap以及zRAM
+![zram](imgs/zram.png "zram")
+&emsp;&emsp;&emsp; 嵌入式系统受限于Flash限制,很少使用swap分区,一般都swapoff。所以嵌入式系统引入zRAM技术。
+<br>
+&emsp;&emsp;&emsp; zRAM技术可以直接把一块内存模拟成一个硬盘分区,当作swap分区使用。此分区自带透明压缩功能,当匿名页向zRAM分区写时,Linux内核使用CPU自动对匿名页进行压缩。接下来,当应用程序又执行到刚才的匿名页时,由于此页已经被swap到zRAM中,内存中没有命中,页表也没有命中,所以此时再去访问这块内存时再次发生page fault,Linux就从zRAM分区中将匿名页透明的解压缩出来还给内存中。
+<br>
+&emsp;&emsp;&emsp; zRAM的特点就是内存来做swap分区,透明压缩(两页匿名页有可能被压缩成一页),透明解压缩(一页解压缩成两页),这样相当于扩大了内存,但会消耗一些CPU资源。
+
+## End
 
