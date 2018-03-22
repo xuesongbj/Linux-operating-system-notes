@@ -113,5 +113,27 @@ static void *__alloc_from_contiguous(struct device *dev, size_t size,
 &emsp;&emsp; 一旦调用dma_map_single()之后,cpu就不能再对该区域内存进行任何操作(因为它做了cache flush操作),直到调用dma_unmap_single()之后才可以对该内存进行操作。
 
 
+## Memory Cgroup
+&emsp;&emsp; 在Linux读写文件时,它用于缓存文件的逻辑内容,从而加快对磁盘上映像和数据的访问。
+
+![cgroup](imgs/cgroup.png "cgroup")
+
+&emsp;&emsp; 创建一个memory cgroup,将swappiness设置为0。那么这个cgroup的匿名页就无法进行交换了。此时将一个进程加入到该cgroup,那么这个进程就常驻在内存,不会被swap到匿名文件或分区。memory cgroup也可以限制使用内存大小,如果设置内存大小为1024M,那么当进程使用内存超过1024M,那么进程就会被OOM(out of memory)。
+
+
+## 文件Dirty数据的写回
+&emsp;&emsp; Linux中Dirty数据要定期进行写回操作。如果Dirty数据在内存待太久,机器突然掉电数据会丢失。而且会给后面磁盘操作产生问题。
+<br>
+&emsp;&emsp; Linux有一个控制Dirty脏页写回机制。主要通过时间和比例控制脏页写回频率。
+
+### dirty_expire_centisecs 和 dirty_writeback_centisecs
+&emsp;&emsp; dirty_expire_centisecs标记当Dirty数据满足kernel flusher线程的阈值时就会达到写入的要求(它以百分之一秒表示)。在内存中的Dirty数据超过此时间间隔的数据,将在下一次flusher线程被唤醒时数据被写出。
+<br>
+&emsp;&emsp; 内核flusher线程(dirty_writeback_centisecs)会周期被唤醒,将旧数据写入磁盘。如果将dirty_writeback_centisecs设置为0,则仅用周期性回写。
+
+
+
+
+
 
 
