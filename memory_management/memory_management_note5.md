@@ -119,7 +119,7 @@ static void *__alloc_from_contiguous(struct device *dev, size_t size,
 ![cgroup](imgs/cgroup.png "cgroup")
 
 &emsp;&emsp; 创建一个memory cgroup,将swappiness设置为0。那么这个cgroup的匿名页就无法进行交换了。此时将一个进程加入到该cgroup,那么这个进程就常驻在内存,不会被swap到匿名文件或分区。memory cgroup也可以限制使用内存大小,如果设置内存大小为1024M,那么当进程使用内存超过1024M,那么进程就会被OOM(out of memory)。
-
+<br><br>
 
 ## 文件Dirty数据的写回
 &emsp;&emsp; Linux中Dirty数据要定期进行写回操作。如果Dirty数据在内存待太久,机器突然掉电数据会丢失。而且会给后面磁盘操作产生问题。
@@ -130,6 +130,31 @@ static void *__alloc_from_contiguous(struct device *dev, size_t size,
 &emsp;&emsp; dirty_expire_centisecs标记当Dirty数据满足kernel flusher线程的阈值时就会达到写入的要求(它以百分之一秒表示)。在内存中的Dirty数据超过此时间间隔的数据,将在下一次flusher线程被唤醒时数据被写出。
 <br>
 &emsp;&emsp; 内核flusher线程(dirty_writeback_centisecs)会周期被唤醒,将旧数据写入磁盘。如果将dirty_writeback_centisecs设置为0,则仅用周期性回写。
+
+
+### dirty_ratio 和 dirty_background_ratio
+&emsp;&emsp; dirty_ratio和dirty_background_ratio是基于空间Dirty写回控制。内存中不能有太多Dirty,如果有太多Dirty可能会影响IO操作会有很大压力(比如当写磁盘或者内存swap交换时,需要先写脏页,当脏页写完之后才会进行IO操作),所以当达到系统设定的空间阈值时,进行Dirty数据回收操作。
+<br>
+&emsp;&emsp; 当内存内Dirty达到dirty_background_ratio阈值时,内核flusher县城开始工作,进行后台Dirty回收(此时,可能用户线程也在进行大量写操作,所以flusher线程写速度小于产生Dirty速度)。当Dirty达到dirty_ratio阈值时,前端县城被阻塞,然后进行dirty回收操作。
+
+<br>
+注意: Dirty数据的回写并不是内存回收,而是让在内存不在硬盘的数据存太长时间(太久)。
+
+
+## 内存回收 
+&emsp;&emsp; 内存何时进行回收？可以使用水位控制进行对内存进行回收(page cache、swap等什么时候可以进行回收,回收出来的内存让应用程进行使用)。水位控制有三个设置:high、low和min。
+
+### min_free_kbytes
+&emsp;&emsp; Linux 通过控制min_free_kbytes值进行控制水位位置。该值可以进行配置,可以自动帮你算出一个值(min_free_kbytes = 4 * sqrt(lowmem_kbytes), min_free_kbytes随着内存的增大)。
+
+```c
+watermark[min] = per_zone_min_free
+watermark[high] - watermark[low] = watermark[low] - watermark[min] = per_zone_min_free_pages * 1/4
+```
+
+<br>
+&emsp;&emsp; 当Zone最小内存达到low水位时,Linux操作系统kswapd启动reclaim进行内存后台回收,知道回收到Hight水位(最小内存*4/6)。有时候应用程序申请内存的速度高于内存页回收速度,内存还会持续增长。当最小内存达到min水位时,Linux会Direct relaim(直接在应用程序的进程上下文中进行回收,会阻塞应用)进行内存回收。
+
 
 
 
