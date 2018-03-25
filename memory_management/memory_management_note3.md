@@ -22,19 +22,16 @@
 ### pmap、/proc/pid/maps和/proc/pid/smaps
 &emsp;&emsp;&emsp; 可以通过pmap、/proc/pid/maps或/proc/pid/smaps查看一个进程的虚拟地址空间。pmap 命令其实就是cat /proc/pid/maps实现。/proc/pid/smaps可以更加详细查看进程VMA的分布情况。
 
-* 
 [![asciicast](https://asciinema.org/a/nt1jh1UyxwrijwPsJb1ttqbG5.png)](https://asciinema.org/a/nt1jh1UyxwrijwPsJb1ttqbG5)
 
 <br>
 &emsp;&emsp;&emsp; 观察pmap结果及maps,smaps文件。可以发现IA32下,一个进程VMA是在0~3G之间分散分布的,是一段一段的,中间会有很多空白区域,空白区域对进程来说都是不能访问的,VMA中会标注这一段的RWX的具体权限。当进程指针访问这些非法空白区域时,由于没有和物理内存进行映射,所以会出现"Page fault"异常,linux内核捕捉到该信号,发送信号,然后进程就会挂掉。如下图所示:
 
-* 
 ![PMAP](imgs/pmap.jpg "pmap")
 
 <br>
 &emsp;&emsp;&emsp; 另外VMA的具体内容可参考下图:
 
-*
 ![VMA](imgs/VMA.jpg "vma")
 
 &emsp;&emsp;&emsp; 注意: 在VMA中区域并不一定分配内存。如调用malloc函数申请100M内存(malloc VMA会有100M内存(VSS))。通过pmap查看时,可以看到它的VSS大小为100M。它的权限是RW(可读可写)。
@@ -85,7 +82,6 @@
 * PSS - Proportional Set Size(按比例内存占用)
 * USS - Unique Set Size(独享内存占用)
 
-* 
 ![vss](imgs/vss.png "vss")
 <br>
 &emsp;&emsp;&emsp; 1044,1045,1054三个进程,每个进程都有一个页表,对应其虚拟地址如何向Real memory 转换。
@@ -115,16 +111,16 @@
 
 
 * 命令行模式
-* 
+
 ![smem](imgs/smem_1.png "smem")
  
  
 * 饼状图模式
-* 
+
 ![smem](imgs/smem_2.png "smem")
  
 * 柱状图模式
-* 
+
 ![smem](imgs/smem_3.png "smem")
 
 
@@ -133,10 +129,9 @@
 ### smaps
 &emsp;&emsp;&emsp; 运行一个死循环程序,观察smaps文件。然后再把此程序跑一份,观察其smaps文件变化(smaps内容很长,只看第一段)
 
-* 
 ![smaps](imgs/smaps_1.png "smaps")
 
-* 
+
 ![smaps](imgs/smaps_2.png "smaps")
 
 &emsp;&emsp;&emsp; 以上两张图运行的程序相同。第一张图是第一次运行程序看到的smaps输出结果。第二张图是第二次运行程序看到原来进程的smaps输出结果。其中Size就是RSS,可以发现PSS由4K变为2K(两个程序共享该内存),而Shared_clean由0K变成4K(RSS中和其它进程共享页面)。Private_clean由4K变成0K(RSS中私有页面)。
@@ -146,7 +141,6 @@
 * 内存泄漏只看USS即可。
 * 观察内存泄漏使用连续多点采样法
 
-* 
 ![memory_monitor](imgs/memory_monitor.png "memory_monitor")
 
 ### 内存泄漏检测工具
@@ -173,7 +167,6 @@ void main(void)
 }
 ```
 
-* 
 ![memory_leak](imgs/memory_leak.png "memory_leak")
 
 <br>
@@ -182,10 +175,8 @@ void main(void)
 #### addresssanitizer
 使用 addresssanitizer 中的 lsan 工具检测程序内存泄漏:
 
-* 
 ![address_lsan](imgs/address_lsan.png "address_lsan")
 
-* 
 ![memory_lsan](imgs/memory_lsan.png "memory_lsan")
 
 
@@ -198,7 +189,7 @@ void main(void)
 
 
 
-### End...
+### (End)
 
 
 
