@@ -156,9 +156,20 @@ watermark[high] - watermark[low] = watermark[low] - watermark[min] = per_zone_mi
 &emsp;&emsp; 当Zone最小内存达到low水位时,Linux操作系统kswapd启动reclaim进行内存后台回收,知道回收到Hight水位(最小内存*4/6)。有时候应用程序申请内存的速度高于内存页回收速度,内存还会持续增长。当最小内存达到min水位时,Linux会Direct relaim(直接在应用程序的进程上下文中进行回收,会阻塞应用)进行内存回收。
 
 
+## swappiness
+&emsp;&emsp; swappiness控制回收的匿名页多一些,还是文件背景页面多一些。如果cgroup swappiness设置为0,该cgroup匿名页就不在交换。但设置/proc/sys/vm/swappiness为0,仅当内存不足的情况下(free and file-backed pages < high water mark in a zone),才使用swap空间。如果将swappiness 设置为100,则内核将积极的使用swap空间.linux swappiness默认值为60.
+
+## getdelays
+&emsp;&emsp; getdelays工具用于测量调度、I/O、swap、Reclaim的延迟.该工具的源代码在tools/accounting/getdelays.c,可直接通过编译使用。
+
+![getdelays](imgs/getdelays.png "getdelay")
+
+## vmstat
+&emsp;&emsp; vmstat可以展现给定时间间隔的服务器的状态值,包括Linux的cpu使用率、内存使用、虚拟内存交换情况、IO读写等情况。
+
+![vmstat](imgs/vmstat.png "vmstat")
 
 
-
-
+## END...
 
 
