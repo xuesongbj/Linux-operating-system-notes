@@ -118,72 +118,95 @@ int main()
         switch(select(max_fd+1,&rfds,NULL,NULL,NULL))
         {
             case 0:
-            printf("timeout\n");
-            break;
+                printf("timeout\n");
+                break;
             case -1:
-            perror("select");
-            break;
+                perror("select");
+                break;
             default:
-            {
-                if(FD_ISSET(listen_sock,&rfds))
                 {
-                    struct sockaddr_in peer;
-                    int len = sizeof(peer);
-                    int new_fd = accept(listen_sock,\
-                    (struct sockaddr*)&peer,&len);
-                    if(new_fd > 0)
+                    if(FD_ISSET(listen_sock,&rfds))
                     {
-                        printf("get a new client->%s:%d\n",\
-                        inet_addr(peer.sin_addr),\
-                        ntohs(peer.sin_port));
+                        struct sockaddr_in peer;
+                        int len = sizeof(peer);
+                        int new_fd = accept(listen_sock,\
+                        (struct sockaddr*)&peer,&len);
+                        if(new_fd > 0)
+                        { 
+                            printf("get a new client->%s:%d\n",\
+                            inet_addr(peer.sin_addr),\
+                            ntohs(peer.sin_port));
+                            for(int i = 0; i < len;i++)
+                            {
+                                if(fds[i] == -1)
+                                {
+                                    fds[i] = new_fd;
+                                    break;
+                                }
+                            }
+                            if(i == len)
+                            {
+                                close(new_fd);
+                            }
+                        }
+                    } else {
+                        char buf[1024];
                         for(int i = 0; i < len;i++)
                         {
-                            if(fds[i] == -1)
-                            {
-                                fds[i] = new_fd;
-                                break;
-                            }
-                        }
-                        if(i == len)
-                        {
-                            close(new_fd);
-                        }
-                    }
-                }
-                else
-                {
-                    char buf[1024];
-                    for(int i = 0; i < len;i++)
-                    {
-                        if(i != 0 && FD_ISSET(fds[i],\
+                            if(i != 0 && FD_ISSET(fds[i],\
                                         &rfds))
-                        {
-                            ssize_t _s = read(fds[i],buf,sizeof(buf))
-                            if(_s > 0)
                             {
-                                buf[_s] = '\0';
-                                printf("client:%s\n",buf);
+                                ssize_t _s = read(fds[i],buf,sizeof(buf))
+                                if(_s > 0)
+                                {
+                                    buf[_s] = '\0';
+                                    printf("client:%s\n",buf);
+                                }
+                                else if(_s == 0)
+                                {
+                                    printf("client:%d is close\n",fds[i]);
+                                    close(fds[i]);
+                                    fds[i] = -1;
+                                }
+                                else 
+                                    perror("read");
                             }
-                            else if(_s == 0)
-                            {
-                                printf("client:%d is close\n",fds[i]);
-                                close(fds[i]);
-                                fds[i] = -1;
-                            }
-                            else 
-                                perror("read");
                         }
                     }
                 }
-            }
-            break;          
+                break;          
         }
     }
 }
 ```
 
 ## select 缺点
-
 * 每次调用select都需要把fd集合从用户态拷贝到内核态，这个开销在fd很多时会很。
 * 每次调用select都需要在内核遍历传递进来的所有fd，这个开销在fd很多时也很大。
-* select支持的文件描述符数量太小了,默认是1024。
+* select支持的文件描述符数量太小了,默认是1024(具体根据不同平台，不太一样)。
+
+```
+# Linux 
+## /usr/include/sys/select.h
+
+/* Maximum number of file descriptors in `fd_set'.  */
+#define FD_SETSIZE      __FD_SETSIZE
+typedef long int __fd_mask;
+
+## /usr/include/linux/posix_types.h
+#define __FD_SETSIZE    1024
+
+/* fd_set for select and pselect.  */
+typedef struct
+{
+#ifdef __USE_XOPEN
+    // __fd_mask ==> 8byte
+    // fds_bits[__FD_SETSIZE / __NFBITS] ==> 8byte[16] ==> (8*8)bit[16] => 1024
+    __fd_mask fds_bits[__FD_SETSIZE / __NFDBITS];
+# define __FDS_BITS(set) ((set)->fds_bits)
+#else
+    __fd_mask __fds_bits[__FD_SETSIZE / __NFDBITS];
+# define __FDS_BITS(set) ((set)->__fds_bits)
+#endif
+} fd_set;
+```
