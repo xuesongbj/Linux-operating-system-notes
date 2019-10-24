@@ -245,7 +245,12 @@ static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
 ```
 
 ##### do_select
-select核心算法。
+select核心算法,do_select最核心的还是调用文件系统*f_op->poll函数,来检测I/O事件(比如fd可读或可写)。
+
+* 当存在被监控的fd触发目标事件,则将fd记录下来，退出循环体，返回用户空间。
+* 当没有找到目标事件，如果已超时或者有待处理的信号，也会退出循环体，返回Null给用户空间。
+* 当以上两种情况都不满足,则会让当前进程进入休眠状态，以等待fd或者超时定时器来唤醒自己,再循环一次。
+
 ```
 static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 {
@@ -257,14 +262,12 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 	__poll_t busy_flag = net_busy_loop_on() ? POLL_BUSY_LOOP : 0;
 	unsigned long busy_start = 0;
 
-	rcu_read_lock();
+    // 找出最大文件描述符
+    // 将n设置成最大值+1
 	retval = max_select_fd(n, fds);
-	rcu_read_unlock();
-
-	if (retval < 0)
-		return retval;
 	n = retval;
 
+    // 初始化等待队列
 	poll_initwait(&table);
 	wait = &table.pt;
 	if (end_time && !end_time->tv_sec && !end_time->tv_nsec) {
@@ -273,6 +276,7 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 	}
 
 	if (end_time && !timed_out)
+        // 处理超时
 		slack = select_estimate_accuracy(end_time);
 
 	retval = 0;
@@ -288,26 +292,30 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 			unsigned long res_in = 0, res_out = 0, res_ex = 0;
 			__poll_t mask;
 
+            // 所有注册事件
 			in = *inp++; out = *outp++; ex = *exp++;
 			all_bits = in | out | ex;
 			if (all_bits == 0) {
+                // BITS_PRE_LONG,long型数据中bit位的个数。
+                // 以32|64bits步长遍历位图,直到在该区间存在目标fd。
 				i += BITS_PER_LONG;
 				continue;
 			}
 
 			for (j = 0; j < BITS_PER_LONG; ++j, ++i, bit <<= 1) {
 				struct fd f;
-				if (i >= n)
-					break;
-				if (!(bit & all_bits))
-					continue;
+                // 找到目标fd
 				f = fdget(i);
 				if (f.file) {
+                    // 检查集合
 					wait_key_set(wait, in, out, bit,
 						     busy_flag);
+                    // 调用poll_wait函数,检查文件设备状态(检查IO事件),并且将当前进程加入到设备等待队列,返回掩码
 					mask = vfs_poll(f.file, wait);
 
 					fdput(f);
+
+                    // 写入in/out/ex相对应的结果
 					if ((mask & POLLIN_SET) && (in & bit)) {
 						res_in |= bit;
 						retval++;
@@ -323,64 +331,58 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 						retval++;
 						wait->_qproc = NULL;
 					}
-					/* got something, stop busy polling */
+					
+                    // 返回值不为0,则停止循环
 					if (retval) {
 						can_busy_loop = false;
 						busy_flag = 0;
-
-					/*
-					 * only remember a returned
-					 * POLL_BUSY_LOOP if we asked for it
-					 */
 					} else if (busy_flag & mask)
 						can_busy_loop = true;
-
 				}
 			}
+
+            // 本轮循环遍历完成,则更新fd事件结果
 			if (res_in)
 				*rinp = res_in;
 			if (res_out)
 				*routp = res_out;
 			if (res_ex)
 				*rexp = res_ex;
+            // 让出CPU时间片让其它进程运行
 			cond_resched();
 		}
 		wait->_qproc = NULL;
+        
+        // 当有文件描述符准备就绪、超时、有待处理的信号,则退出循环
 		if (retval || timed_out || signal_pending(current))
 			break;
-		if (table.error) {
-			retval = table.error;
-			break;
-		}
 
-		/* only if found POLL_BUSY_LOOP sockets && not out of time */
-		if (can_busy_loop && !need_resched()) {
-			if (!busy_start) {
-				busy_start = busy_loop_current_time();
-				continue;
-			}
-			if (!busy_loop_timeout(busy_start))
-				continue;
-		}
-		busy_flag = 0;
-
-		/*
-		 * If this is the first loop and we have a timeout
-		 * given, then we convert to ktime_t and set the to
-		 * pointer to the expiry value.
-		 */
 		if (end_time && !to) {
+            // 首轮循环设置超时时间
 			expire = timespec64_to_ktime(*end_time);
 			to = &expire;
 		}
 
+        // 设置当前进程状态为TASK_INTERRUPTIBLE，进入休眠直到超时。
 		if (!poll_schedule_timeout(&table, TASK_INTERRUPTIBLE,
 					   to, slack))
 			timed_out = 1;
 	}
 
+    // 释放poll等待队列
 	poll_freewait(&table);
-
 	return retval;
+}
+```
+
+##### vs_poll 
+```
+static inline __poll_t vfs_poll(struct file *file, struct poll_table_struct *pt)
+{
+    // 轮训函数不为空,每当设备模块加载就自动会加载设备轮训函数,
+    // 等于将轮回函数给poll指针,以便调用。
+	if (unlikely(!file->f_op->poll))
+		return DEFAULT_POLLMASK;
+	return file->f_op->poll(file, pt);
 }
 ```
