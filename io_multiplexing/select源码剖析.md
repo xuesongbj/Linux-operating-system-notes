@@ -476,3 +476,118 @@ init_waitqueue_func_entry(wait_queue_t *q, wait_queue_func_t func)
 	q->func		= func;
 }
 ```
+
+##### poll_schedule_timeout
+此时进程处于休眠状态,当其它进程就绪事件发生时便会唤醒相应等待队列上的进程。比如,监控的是可写事件，则会在write()方法中调用wakeup方法唤醒相对应的等待队列上的进程。
+
+```
+static int poll_schedule_timeout(struct poll_wqueues *pwq, int state,
+			  ktime_t *expires, unsigned long slack)
+{
+	int rc = -EINTR;
+
+    // 设置进程状态
+	set_current_state(state);
+
+    // 设置超时
+	if (!pwq->triggered)
+		rc = schedule_hrtimeout_range(expires, slack, HRTIMER_MODE_ABS);
+
+	__set_current_state(TASK_RUNNING);
+	smp_store_mb(pwq->triggered, 0);
+
+	return rc;
+}
+```
+
+
+##### pollwake
+当该进程执行就会进入休眠状态，当处于休眠时就绪事件触发，则会回调__pollwake()唤醒方法，具体执行:
+
+* 先从wait的private中获取相应的pwq;
+* 再将pwq的task_struct结构体polling_task赋值给新创建的等待队列项dummy_wait->private;
+* 最后再调用default_wake_function来唤醒处于睡眠状态的进程;
+
+```
+static int pollwake(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
+{
+	struct poll_table_entry *entry;
+
+	entry = container_of(wait, struct poll_table_entry, wait);
+	if (key && !(key_to_poll(key) & entry->key))
+		return 0;
+	return __pollwake(wait, mode, sync, key);
+}
+
+static int __pollwake(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
+{
+	struct poll_wqueues *pwq = wait->private;
+
+    // 创建dummy_wait等待队列项
+	DECLARE_WAITQUEUE(dummy_wait, pwq->polling_task);
+
+	smp_wmb();
+	pwq->triggered = 1;
+
+    // 唤醒目标进程
+	return default_wake_function(&dummy_wait, mode, sync, key);
+}
+```
+
+##### poll_freewait
+执行完pollwake，之前处于睡眠等待状态的进程便唤醒执行do_select的循环后,这一轮会跳出循环，然后执行poll_freewait来移除该等待队列。
+
+```
+void poll_freewait(struct poll_wqueues *pwq)
+{
+	struct poll_table_page * p = pwq->table;
+	int i;
+	for (i = 0; i < pwq->inline_index; i++)
+		free_poll_entry(pwq->inline_entries + i);
+	while (p) {
+		struct poll_table_entry * entry;
+		struct poll_table_page *old;
+
+		entry = p->entry;
+		do {
+			entry--;
+			free_poll_entry(entry);
+		} while (entry > p->entries);
+		old = p;
+		p = p->next;
+		free_page((unsigned long) old);
+	}
+}
+
+static void free_poll_entry(struct poll_table_entry *entry)
+{
+    // 从等待队列中移除wait
+	remove_wait_queue(entry->wait_address, &entry->wait);
+	fput(entry->filp);
+}
+```
+
+### 总结
+do_select()是整个select的核心过程。
+
+#### pollwait
+
+* poll_initwait(): 设置poll_wqueues->poll_table的成员变量poll_queue_proc为__pollwait函数;
+
+* f_op->poll(): 会调用poll_wait()，进而执行上一步设置的方法__pollwait();
+
+* __pollwait(): 设置wait->func唤醒回调函数为pollwake函数，并将poll_table_entry->wait加入等待队列；
+
+* poll_schedule_timeout(): 该进程进入带有超时的休眠队列。
+
+当其它进程就绪事件发生时便会唤醒相应等待队列上的进程。比如监控的可写事件，则会在write()方法中调用wake_up方法唤醒相对应的等待队列上的进程，当唤醒后执行前面设置的唤醒回调函数pollwake函数。
+
+* pollwake(): 先从wait->private的polling_task获取处于等待睡眠状态的目标进程，调用default_wake_function()来唤醒该进程；
+
+* poll_freewait()：当进程唤醒后，将就绪事件结果保存在fds的res_in、res_out、res_ex，然后把该等待队列从该队列头中移除。
+
+* 回到core_sys_select()，将就绪事件结果拷贝到用户空间。
+
+
+### select 缺陷
+每次回轮训所有fd的f_op->poll()函数。
