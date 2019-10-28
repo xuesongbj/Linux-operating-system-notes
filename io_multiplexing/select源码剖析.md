@@ -220,30 +220,6 @@ struct poll_table_entry {
 };
 ```
 
-##### poll_initwait
-poll_initwait函数主要初始化poll_wqueues。
-```
-void poll_initwait(struct poll_wqueues *pwq)
-{
-	init_poll_funcptr(&pwq->pt, __pollwait);
-	pwq->polling_task = current;
-	pwq->triggered = 0;
-	pwq->error = 0;
-	pwq->table = NULL;
-	pwq->inline_index = 0;
-}
-
-// EXPORT_SYMBOL标签内定义的函数或者符号对全部内核代码公开，不用修改内核代码就可以在内核模块中直接调用。
-EXPORT_SYMBOL(poll_initwait);
-```
-
-##### pollwait
-pollwait()和poll_freewait()完成所有的工作。
-```
-static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
-		       poll_table *p);
-```
-
 ##### do_select
 select核心算法,do_select最核心的还是调用文件系统*f_op->poll函数,来检测I/O事件(比如fd可读或可写)。
 
@@ -307,6 +283,8 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
                 // 找到目标fd
 				f = fdget(i);
 				if (f.file) {
+                    const struct file_operations *f_op;
+
                     // 检查集合
 					wait_key_set(wait, in, out, bit,
 						     busy_flag);
@@ -384,5 +362,117 @@ static inline __poll_t vfs_poll(struct file *file, struct poll_table_struct *pt)
 	if (unlikely(!file->f_op->poll))
 		return DEFAULT_POLLMASK;
 	return file->f_op->poll(file, pt);
+}
+```
+
+##### poll_initwait
+poll_initwait函数主要初始化poll_wqueues。
+```
+void poll_initwait(struct poll_wqueues *pwq)
+{
+    // 初始化poll函数指针
+	init_poll_funcptr(&pwq->pt, __pollwait);
+
+    // 将当前进程记录在pwq结构体
+	pwq->polling_task = current;
+
+	pwq->triggered = 0;
+	pwq->error = 0;
+	pwq->table = NULL;
+	pwq->inline_index = 0;
+}
+
+// EXPORT_SYMBOL标签内定义的函数或者符号对全部内核代码公开，不用修改内核代码就可以在内核模块中直接调用。
+EXPORT_SYMBOL(poll_initwait);
+```
+将结构体poll_wqueues->poll_table->poll_queue_proc赋值给__pollwait,__pollwait会在poll过程中调用。
+
+```
+static inline void init_poll_funcptr(poll_table *pt, poll_queue_proc qproc)
+{
+	pt->_qproc = qproc;
+	pt->_key   = ~0UL; /* all events enabled */
+}
+
+typedef void (*poll_queue_proc)(struct file *, wait_queue_head_t *, struct poll_table_struct *);
+```
+#### file_operations->poll
+struct file_operations设备驱动操作函数，每个文件系统都有自己的一套文件操作集合。
+
+```
+struct file_operations {
+	struct module *owner;
+	loff_t (*llseek) (struct file *, loff_t, int);
+	ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
+	ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *);
+	ssize_t (*aio_read) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
+	ssize_t (*aio_write) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
+	ssize_t (*read_iter) (struct kiocb *, struct iov_iter *);
+	ssize_t (*write_iter) (struct kiocb *, struct iov_iter *);
+	int (*iterate) (struct file *, struct dir_context *);
+
+    // 轮训方法
+	unsigned int (*poll) (struct file *, struct poll_table_struct *);
+	
+    long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
+	int (*mmap) (struct file *, struct vm_area_struct *);
+	void (*mremap)(struct file *, struct vm_area_struct *);
+	int (*open) (struct inode *, struct file *);
+	int (*flush) (struct file *, fl_owner_t id);
+	int (*release) (struct inode *, struct file *);
+	int (*fsync) (struct file *, loff_t, loff_t, int datasync);
+	int (*aio_fsync) (struct kiocb *, int datasync);
+	int (*fasync) (int, struct file *, int);
+	int (*lock) (struct file *, int, struct file_lock *);
+	ssize_t (*sendpage) (struct file *, struct page *, int, size_t, loff_t *, int);
+	unsigned long (*get_unmapped_area)(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
+	int (*check_flags)(int);
+	int (*flock) (struct file *, int, struct file_lock *);
+	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *, loff_t *, size_t, unsigned int);
+	ssize_t (*splice_read)(struct file *, loff_t *, struct pipe_inode_info *, size_t, unsigned int);
+	int (*setlease)(struct file *, long, struct file_lock **, void **);
+	long (*fallocate)(struct file *file, int mode, loff_t offset,
+			  loff_t len);
+	void (*show_fdinfo)(struct seq_file *m, struct file *f);
+};
+```
+(*f_op->poll)(f.file, wait),就是调用文件系统的poll方法,不同驱动设备实现方法略有不同,但都会执行poll_wait(),该方法真正执行就是回掉函数__pollwait,把自己挂入等待队列。
+
+##### pollwait
+pollwait()和poll_freewait()完成所有的工作。
+```
+static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
+				poll_table *p)
+{
+    // 根据poll_wqueues的成员pt指针p找到所在的poll_wqueue结构指针
+	struct poll_wqueues *pwq = container_of(p, struct poll_wqueues, pt);
+	struct poll_table_entry *entry = poll_get_entry(pwq);
+	if (!entry)
+		return;
+
+	entry->filp = get_file(filp);
+	entry->wait_address = wait_address;
+	entry->key = p->_key;
+
+    // 设置entry->wait.func = pollwake
+	init_waitqueue_func_entry(&entry->wait, pollwake);
+
+    // 设置private内容为pwq
+	entry->wait.private = pwq;
+
+    // 将该pollwake加入到等待链表头
+	add_wait_queue(wait_address, &entry->wait);
+}
+
+# include/linux/wait.h
+static inline void
+init_waitqueue_func_entry(wait_queue_t *q, wait_queue_func_t func)
+{
+	q->flags	= 0;
+	q->private	= NULL;
+
+    // 唤醒回调函数
+	q->func		= func;
 }
 ```
